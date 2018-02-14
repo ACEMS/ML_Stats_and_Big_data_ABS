@@ -1,0 +1,174 @@
+---
+title: "Tree-Based Methods for Big (and small) Data"
+author: "Miles McBain"
+date: "12 October 2017"
+output: html_document
+---
+
+#Prerequisites
+
+```{r, message=FALSE}
+library(rpart)
+library(readr)
+library(knitr)
+library(rpart.plot)
+library(dplyr)
+library(randomForest)
+library(caret)
+library(e1071)
+```
+
+
+# Introduction
+In this practical we introduce tree-based approaches with CARTS on a classic data set, then progressing to more advanced tree methods in a more realistic context.
+
+## CARTs
+
+### Surviving the Titanic
+The passenger list of those aboard the *RMS Titanic* when disaster struck provides an interesting data set for the application of CARTs to explore relationships between survival and other passenger attributes. 
+
+It's also a great opportunity to check out the analysis of this data set on [Kaggle](https://www.kaggle.com/c/titanic/details/new-getting-started-with-r). A description of the variables is here: https://www.kaggle.com/c/titanic/data. 
+
+**Discuss:**
+
+* Based on either historical fact or Hollywood fiction, what are passenger attributes that you would expect to be associated with death or survival? 
+
+### Load Data
+```{r, message=FALSE}
+titanic_data <- read_csv("data/train.csv")
+kable(titanic_data[1:10,])
+```
+
+**Discuss:**
+
+* To look at passenger survival what kind of model will we fit? 
+   - Classification, Regression, Clustering, Dimension Reduction etc?
+   - Is it supervised or unsupervised?
+
+### Create a CART
+Initially we'll just fit a CART based on `Pclass`, `Sex`, and `Age`.
+```{r}
+CART_model <- tree_fit_titanic <- rpart(Survived ~ Pclass + Sex + Age,
+                          data = titanic_data,
+                          method = "class",
+                          control = rpart.control(cp = 0.01, xval = 10)
+                            )
+rpart.plot(tree_fit_titanic)
+```
+
+Experiment with the cost-complexity parameter `cp`. In the context of fitting, it controls the size of the tree by setting a threshold of fit improvement that must be met for a node to be added. A lower CP will allow more complex trees to be fit.
+
+Tree models can be pruned to a given cost-complexity after fitting using the `prune()` function.
+
+*Discuss*:
+
+* What do you make of the `xval` parameter?
+
+### CART diagnostics
+Try `summary()` but observe that it is not very useful. Plotting the cross-validation error associated with various tree sizes can be used to verify the choice of tree size:
+```{r}
+plotcp(tree_fit_titanic)
+```
+
+
+#### The Confusion Matrix
+
+The `caret` package contains a detailed confusion matrix function for classification tasks:
+
+```{r}
+  confusionMatrix(titanic_data$Survived, predict(tree_fit_titanic, type = "class"))
+```
+
+**Discuss**:
+
+* Which of these measures are you familiar with? 
+
+
+### Exercise
+Experiment with adding other features from the dataset and observe their effect on predictive accuracy and how that flows through to tree structure.
+
+**Discuss**:
+
+* What seems to have the most impact on survivorship? Does this agree with you initial guess?
+
+
+## Random Forests
+The data for this analysis are real records from a telemarketing campaign run by a Spanish bank. The data contain the records for 32000 calls to banking customers. A bank may collect data like this from a 'pilot' campaign based on customers selected by stratified random sample. The data contain a 0/1 indicator variable which represents the failure/success of the customer accepting the proposed offer
+
+
+### Load Data
+```{r, message=FALSE}
+bank_data <- read_csv2("data/bank-additional-full.csv",
+                       guess_max = 10000)
+kable(bank_data[1:10,])
+```
+
+A description of the variables in the data is avail able in [./data/bannk-additional-names.txt](./data/bannk-additional-names.txt).
+
+
+### Data Preprocessing
+`randomForest` requires factors and numbers. By default the text variables will be considered by `read_csv` as character type, so we need to convert them to factors.
+
+```{r}
+bank_data_factor <- 
+  bank_data %>%
+  mutate_if(is.character, as.factor) %>%
+  select(-duration) %>%
+  as.data.frame()
+```
+We also removed one variable: `duration` from out data set. **Why is this?**
+
+### Fit a Random Forest
+```{r}
+
+rf_model <- randomForest(formula = y ~ ., 
+                                        data = bank_data_factor,
+                                        ntree = 100,
+                                        mtry = 4)
+```
+
+Examine the confusion matrix of the `rf_model` object to see model performance measures.  
+Some useful plots are available with `varImpPlot(rf_model)` and `plot(rf_model)`.
+
+**Discuss**:
+
+* Which are the most important variables in determining the whether the customer would accept the offer?
+* How can we determine the effects of these variables?
+
+
+### Exercise: Tuning a Random Forest
+
+The choice of parameter `mtry` was arbitrary. A more robust approach is to select it via a search of possible choices. There is a function `tuneRF()` in the `randomForest` package that is provided for just this purpose. Use it to select the best `mtry`.
+
+This process is common with Machine Learning algorithms and is referred to as "Grid Search".
+
+```{r, eval=FALSE}
+preds <- as.data.frame(bank_data_factor[,-20])
+response <- as.factor(as.vector(bank_data_factor[, 20]))
+
+tune_result <- 
+  tuneRF( x = preds,
+          y = response,
+          mtryStart = 5
+          )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+**Discuss**
+
+* Was the forest fitted with optimal `mtry` more accurate? 
+* How do you rate the final model you arrived at for the task of identifying customers to call?
+

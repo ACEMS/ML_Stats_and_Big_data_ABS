@@ -1,0 +1,155 @@
+---
+title: "Preparing Data for Machine Learning"
+author: "Miles McBain"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    keep_md: TRUE
+---
+
+```{r, echo=FALSE, include=FALSE}
+library(dplyr)
+library(knitr)
+library(lubridate)
+library(magrittr)
+library(readr)
+library(tidyr)
+```
+
+
+# Prequisites
+This practical assumes some degree of comfort with R, RStudio and Rmarkdown (this file format).
+
+For any function you do not understand you can use `help(function_name)` to see helpful information about it.
+
+# Introduction
+This practical will walk through some of the concerns when preparing data for machine learning methods. We first consider the overall shape of the dataset, and then drill down into ways we can format the data to maximise performance.
+
+## Shaping Traffic Data
+
+### The Data
+
+This example is based on historical travel time data from the M4 motorway in Sydney:
+![](./figs/m4_times.jpg)
+
+In the dataset we'll examine the motorway is broken up into a series of Eastbound and Westbound "routes" for which we have the recorded average transit time of vehicles calculated over consecutive 3 minute intervals from March to November in 2010.
+
+A quick look:
+```{r, warning=FALSE, message=FALSE}
+road_data <- read_csv("./data/RTAData_MM_raw.csv", guess_max = 100000)
+head(road_data)
+```
+
+### Modelling Strategy
+
+This dataset contains spatially and temporally correlated data. Each column contains the time series of average transit times for an individual section of the highway. Let's imgaine we would like to try modelling this data using supervised learning, that is we wish to find $f()$ that best predicts the transit time $Y_{t}$ of **any** route, given time and route related features $X_{t}$. $f()$ will minimise $\epsilon$ in:
+$$ Y_{t} = f(X_{t}) + \epsilon $$
+
+The dataset we just looked at is not in the right shape for this. The shape the dataset needs to be in is called 'Tidy Data'. This means one column for the response, once colum per feature, and one row per training example. You can read more about the properties of this form in [Wickham, H. (2014). Tidy Data. Journal of Statistical Software](https://www.jstatsoft.org/index.php/jss/article/view/v059i10/v59i10.pdf)   
+
+**Discussion:** How do we transform this dataset to tidy form? It may help to consider what the response column should look like. 
+
+Run the code below and explain how this format relates to the supervised learning equation above.
+
+### Transformation to Tidy Form
+
+```{r, echo=FALSE}
+road_data <-
+  road_data %>%
+  gather(key = "Route", value = "Avg_Transit_Time", -datestamp)
+```
+
+### Feature Extraction
+With the dataset we have now, we can train a model:
+
+$$Y_{t} = f(datestamp, routeID)$$
+
+What is your intuition about how well this might work?
+
+By **decomposition** of the data we can exract features that will give a supervised learning approach more traction. For example, we could decompose `datestamp`:
+
+```{r, message=FALSE}
+road_data <-
+road_data %>%
+  mutate(month = month(datestamp),
+         day = day(datestamp),
+         hour = hour(datestamp),
+         minute = minute(datestamp))
+head(road_data)
+```
+
+Other viable ways to extract feaures are summarisation and aggregration. For example we might aggregate financial transaction data from customer activity over a month or fortnight. Or we might summarises a region of a sattelite image by the average pixel intensity of the green channel.
+
+**Discussion** We do not have any features that would allow our learning algorithm to utilise the temporal or spatial correlation. What features could we extract from the data to allow this?
+
+Can you write either code or psuedo code to create a feature of this type?
+
+### Data Augmentation
+
+Another common preparation step is to introduce features derived from data not in the current dataset. A categorical feature which describes whether the route is Westbound or Eastbound would be useful.
+
+**Discussion** What other useful data can you imagine using to augment this dataset to improve supervised learning performance? 
+
+Can you identify an R function you'd use to join this type of data? 
+
+## Data Format
+
+Hopefully you now have a sense of a high level structure of data you can use with many supervised learning algorithms. Now we consider specific details of the data format that can improve learning performance.
+
+### Scaling or Standardisation
+Suppose we further augmented the dataset with information like weather and a 1 hour time-lagged observation of average transit time. We'll just use dummy data for temprarature the sake of brevity:
+
+```{r}
+road_data <-
+  road_data %>%
+  group_by(Route) %>%
+  arrange(datestamp) %>%
+  mutate(Avg_Transit_Time_1hr_lag = lag(Avg_Transit_Time, n = 20),
+    temp = runif(n = n(), 5, 35)) %>%
+  filter(!is.na(Avg_Transit_Time_1hr_lag)) %>%
+  ungroup()
+
+summary(road_data %>% select(-datestamp, -Route)) 
+```
+
+The issue evident from the summary is that `temp` and `Avg_Transit_Time_1hr_lag` are measured on different scales. So for a supervised learning method trying to minimise the error of $f(..., temp, AvgTransitTime1hrlag)$ there is a risk it will give too much weight the larger lag variable. 
+
+We solve this by *scaling* the data to [0,1] or [-1,1], or *standardising* using the z-score. Can you complete the R code below to do either of these? Use the same approach for all features.
+
+```{r, eval = FALSE}
+road_data <-
+  road_data %>%
+  mutate( temp = scale(temp, center = TRUE, scale = TRUE),
+          Avg_Transit_Time_1hr_lag = scale(Avg_Transit_Time_1hr_lag, center = TRUE, scale = TRUE))  
+```
+
+
+Example algorithms where this is highly relevant for success are: K-Nearest-Neighbours and Backpropogation (Neural Networks). As you learn more about them in later sessions see if your appreciation of this technique increases.
+
+### Binning
+This technique applies when the learning algorithm includes the assumption of a linear relationship between the features and the response. A method of allowing the learner to model non-linear relationships is to bin a numeric features into multiple categorical (binary) features.
+
+**Discussion** In our dataset `temp` might be a good candidate for this. Do you agree? Why/Why not?
+
+Can you complete the `case_when` function below to create a few temperature bins? 
+
+```{r, eval=FALSE}
+road_data <-
+  road_data %>%
+  mutate( temp_cat = case_when(
+    temp < -2 ~ "cold",
+    temp > 2 ~ "hot",
+    TRUE ~ "normal"
+  ) )  
+```
+
+
+### Further Exercises
+
+**Discussion** Do you already have some other ideas on how to create useful models from this data? Discuss. What about these considerations:s
+
+  * How could you incorporate spatially correlated features?
+  * The size of the data could grow very large how could you deal with this?
+
+
+
